@@ -1,0 +1,24 @@
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        public: false
+
+    Amashukov\TracingBundle\Http\RequestIdResolver: ~
+
+    Amashukov\TracingBundle\Http\RequestIdResolverInterface:
+        alias: Amashukov\TracingBundle\Http\RequestIdResolver
+
+    Amashukov\TracingBundle\Http\RequestIdListener:
+        tags:
+            - { name: kernel.event_subscriber }
+
+    Amashukov\TracingBundle\Monolog\RequestIdProcessor:
+        tags:
+            - { name: monolog.processor }
+
+    Amashukov\TracingBundle\Messenger\WorkerRequestIdContext: ~
+
+    Amashukov\TracingBundle\Messenger\RequestIdMessengerMiddleware:
+        tags:
+            - { name: messenger.middleware }

@@ -1,0 +1,71 @@
+{
+    "name": "amashukov/tracing-bundle",
+    "description": "Symfony 7 bundle — UUIDv7 X-Request-Id propagation FE -> BE -> Monolog logs with a Messenger sync -> queue -> worker bridge.",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "keywords": ["symfony", "symfony-bundle", "monolog", "tracing", "request-id", "uuidv7", "observability"],
+    "homepage": "https://github.com/amashukov/tracing-bundle",
+    "support": {
+        "issues": "https://github.com/amashukov/tracing-bundle/issues",
+        "source": "https://github.com/amashukov/tracing-bundle"
+    },
+    "authors": [
+        {
+            "name": "Andrei Mashukov",
+            "email": "a.mashukoff@gmail.com",
+            "homepage": "https://github.com/AndreyMashukov"
+        }
+    ],
+    "require": {
+        "php": ">=8.3",
+        "monolog/monolog": "^3.0",
+        "symfony/config": "^7.0",
+        "symfony/dependency-injection": "^7.0",
+        "symfony/event-dispatcher": "^7.0",
+        "symfony/http-foundation": "^7.0",
+        "symfony/http-kernel": "^7.0",
+        "symfony/uid": "^7.0",
+        "symfony/yaml": "^7.0"
+    },
+    "suggest": {
+        "symfony/messenger": "^7.0 — enables RequestIdMessengerMiddleware: propagates request_id across sync -> queue -> worker boundaries via RequestIdStamp; consume-side restores into WorkerRequestIdContext so Monolog logs carry the originating request id."
+    },
+    "require-dev": {
+        "amashukov/rector-php-rules": "^0.2.1",
+        "friendsofphp/php-cs-fixer": "^3.50",
+        "phpstan/phpstan": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0",
+        "phpstan/phpstan-symfony": "^2.0",
+        "phpunit/phpunit": "^11.0",
+        "rector/rector": "^2.0",
+        "symfony/browser-kit": "^7.0",
+        "symfony/framework-bundle": "^7.0",
+        "symfony/messenger": "^7.0",
+        "symfony/monolog-bundle": "^3.10"
+    },
+    "autoload": {
+        "psr-4": {
+            "Amashukov\\TracingBundle\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Amashukov\\TracingBundle\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "stan": "phpstan analyse --memory-limit=512M",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs-fix": "php-cs-fixer fix",
+        "rector": "rector process --dry-run"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
