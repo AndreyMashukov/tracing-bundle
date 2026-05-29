@@ -1,10 +1,16 @@
 # amashukov/tracing-bundle
 
+A Symfony 7 bundle that stamps every inbound HTTP request with a UUIDv7 `X-Request-Id`, mirrors it onto every Monolog log record's `extra.request_id`, echoes it back on the response, and rides through Symfony Messenger so a worker logging a handler ends up with the same id the originating HTTP request held.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/AndreyMashukov/tracing-bundle/ci.yml?branch=main&label=CI)](https://github.com/AndreyMashukov/tracing-bundle/actions)
+[![PHPStan L8](https://img.shields.io/github/actions/workflow/status/AndreyMashukov/tracing-bundle/stan.yml?branch=main&label=PHPStan%20L8)](https://github.com/AndreyMashukov/tracing-bundle/actions)
 [![Latest Version](https://img.shields.io/packagist/v/amashukov/tracing-bundle)](https://packagist.org/packages/amashukov/tracing-bundle)
+[![Downloads](https://img.shields.io/packagist/dt/amashukov/tracing-bundle)](https://packagist.org/packages/amashukov/tracing-bundle)
 [![PHP](https://img.shields.io/packagist/dependency-v/amashukov/tracing-bundle/php)](https://packagist.org/packages/amashukov/tracing-bundle)
 [![License](https://img.shields.io/packagist/l/amashukov/tracing-bundle)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/AndreyMashukov/tracing-bundle?style=social)](https://github.com/AndreyMashukov/tracing-bundle)
 
-Symfony 7 bundle. Stamps every inbound HTTP request with a UUIDv7 `X-Request-Id`, mirrors it onto every Monolog log record's `extra.request_id`, echoes it back on the response, and rides through Symfony Messenger so a worker logging a handler ends up with the same id the originating HTTP request held.
+`amashukov/tracing-bundle` is a **vendor-extractable Symfony 7 bundle for end-to-end `request_id` propagation**. Doing this once at the right layer beats bolting it on per-call: the bundle ships the kernel listener, the resolver, the Monolog processor, the Messenger stamp, the consume-side context restorer, validation at the trust boundary, and the CLI fallback so every console run / cron / worker logs `{"request_id":"..."}` instead of an empty extra block. Drop it into a Symfony 7 project, get the same id flowing through the FE fetch, the controller, every log line on every channel, the response header, and the queue-bound worker that picks the message up minutes later — with zero `App\*` namespace coupling.
 
 ```
 FE fetch ─┐                                       ┌─► response with X-Request-Id
@@ -28,37 +34,24 @@ FE fetch ─┐                                       ┌─► response with X-
                                             └─► same UUIDv7 in handler logs
 ```
 
-## Why
+## Features
 
-When a request fails across the FE/BE seam, you need one id that flows through every layer:
+- **Per-request UUIDv7** — generated via `symfony/uid` when the incoming `X-Request-Id` is missing or malformed; valid inbound ids are lowercased and forwarded unchanged.
+- **Listener at the kernel boundary** — `kernel.request` (priority `256`) writes the id onto the `Request` attribute; `kernel.response` (priority `-256`) mirrors it onto the response header. Main-request only; sub-requests inherit the parent id naturally.
+- **Validation at the trust boundary** — incoming header rejected when length ≠ 36 or it contains anything outside `[a-f0-9-]`. Prevents log-injection (SQL fragments, control characters, oversized payloads) from contaminating log files and aggregator search.
+- **Monolog processor on every channel** — `extra.request_id` attached to every `LogRecord` (`app`, `doctrine`, `security`, `messenger`, ...) with pre-existing extras preserved.
+- **Messenger sync → queue → worker bridge** — dispatch-side middleware attaches a `RequestIdStamp` to outbound envelopes; consume-side restores the id into `WorkerRequestIdContext` before the handler runs, clears in `finally` so message N+1 starts clean.
+- **CLI fallback** — every console / cron / non-Messenger worker run logs `{"request_id":"cli"}` instead of an empty extra block — log-aggregator queries stay consistent regardless of execution mode.
+- **`final readonly` services** — narrow contracts, immutable wiring, autowired by default.
+- **Zero `App\*` coupling** — bundle depends only on `monolog/monolog` + `symfony/*`. Drop into any project without renaming.
 
-- the browser `fetch` that started it,
-- the Symfony controller that handled it,
-- every log line the request emitted on any channel (`app`, `doctrine`, `security`, `messenger`, ...),
-- the response header so the FE can surface it in error toasts and Sentry breadcrumbs,
-- the Messenger handler that picks the work up minutes later in a separate worker process.
+## Installation
 
-Doing this once at the right layer beats bolting it on per-call. The bundle ships the listener, the resolver, the Monolog processor, the Messenger stamp, the consume-side context restorer, the validation at the trust boundary, and the CLI fallback so every console run / cron / worker logs `{"request_id":"..."}` instead of an empty extra block.
-
-## What you get
-
-| Piece | What it does |
-|---|---|
-| `Http\RequestIdListener` | `kernel.request` (priority 256) reads `X-Request-Id`, validates as 36-char hex UUID, generates **UUIDv7** via `symfony/uid` when missing or malformed. `kernel.response` (priority -256) mirrors the id onto the response header. Main-request only; sub-requests inherit the parent's id naturally. |
-| `Http\RequestIdResolverInterface` | Narrow contract `current(): string`. Services depend on the interface; the bundle wires the alias. |
-| `Http\RequestIdResolver` | `final readonly` implementation. Reads `request_id` off the main request first, falls back to `WorkerRequestIdContext` (when running inside Messenger), then to the `cli` constant. |
-| `Monolog\RequestIdProcessor` | Tagged `monolog.processor`. Attaches `extra.request_id` to every `LogRecord` on every channel. Pre-existing `extra` keys are preserved. |
-| `Messenger\RequestIdStamp` | Immutable `StampInterface` value object carrying one string (the originating request's id). |
-| `Messenger\RequestIdMessengerMiddleware` | Dual-path Messenger middleware. **On dispatch** (no `ReceivedStamp` on the envelope): if no stamp is attached yet, attaches `new RequestIdStamp($resolver->current())`. **On consume** (`ReceivedStamp` present): reads the stamp, writes the id to `WorkerRequestIdContext` before calling the next middleware, clears in `finally` so the next message starts clean. |
-| `Messenger\WorkerRequestIdContext` | Single-cell mutable state holder for the worker's current message id. Read by `RequestIdResolver::current()` when there is no HTTP request. |
-
-## Install
-
-```sh
+```bash
 composer require amashukov/tracing-bundle
 ```
 
-Symfony Flex registers the bundle. If you don't run Flex, add it manually:
+Symfony Flex registers the bundle automatically. If you don't run Flex, add it manually:
 
 ```php
 // config/bundles.php
@@ -71,7 +64,7 @@ return [
 
 ## Requirements
 
-- PHP **8.3+**
+- PHP **8.3+** (UUIDv7 needs `symfony/uid` ≥ 7.0)
 - `monolog/monolog` ^3.0
 - `symfony/*` ^7.0 (`config`, `dependency-injection`, `event-dispatcher`, `http-foundation`, `http-kernel`, `uid`, `yaml`)
 - `symfony/messenger` ^7.0 — soft `suggest`. The middleware class only loads when Messenger is installed; non-Messenger projects pay zero overhead.
@@ -152,9 +145,9 @@ http:
       exposed_headers: "...,X-Request-Id"
 ```
 
-## Messenger integration (sync -> queue -> worker)
+## Messenger integration (sync → queue → worker)
 
-When a Messenger message crosses the sync -> queue boundary, the worker process has no `RequestStack`. The bundle's middleware closes that gap.
+When a Messenger message crosses the sync → queue boundary, the worker process has no `RequestStack`. The bundle's middleware closes that gap.
 
 Dispatch side (HTTP request handler):
 
@@ -174,14 +167,26 @@ Consume side (worker process):
 
 Per W3C Trace Context spec _Non-HTTP Protocol Support_ and the Symfony Messenger official middleware pattern (`$envelope->last(ReceivedStamp::class)` discriminates dispatch vs consume).
 
+## Class catalogue
+
+| Class | What it does |
+|---|---|
+| `Http\RequestIdListener` | `kernel.request` (priority 256) reads `X-Request-Id`, validates as 36-char hex UUID, generates **UUIDv7** via `symfony/uid` when missing or malformed. `kernel.response` (priority -256) mirrors the id onto the response header. Main-request only. |
+| `Http\RequestIdResolverInterface` | Narrow contract `current(): string`. Services depend on the interface; the bundle wires the alias. |
+| `Http\RequestIdResolver` | `final readonly` implementation. Reads `request_id` off the main request first, falls back to `WorkerRequestIdContext` (when running inside Messenger), then to the `cli` constant. |
+| `Monolog\RequestIdProcessor` | Tagged `monolog.processor`. Attaches `extra.request_id` to every `LogRecord` on every channel. Pre-existing `extra` keys preserved. |
+| `Messenger\RequestIdStamp` | Immutable `StampInterface` value object carrying one string (the originating request's id). |
+| `Messenger\RequestIdMessengerMiddleware` | Dual-path Messenger middleware. **Dispatch**: attaches `new RequestIdStamp($resolver->current())` to the envelope if not already present. **Consume** (`ReceivedStamp` present): reads the stamp, writes the id to `WorkerRequestIdContext` before calling the next middleware, clears in `finally`. |
+| `Messenger\WorkerRequestIdContext` | Single-cell mutable state holder for the worker's current message id. Read by `RequestIdResolver::current()` when there is no HTTP request. |
+
 ## Validation
 
 Incoming `X-Request-Id` is rejected when:
 
-- length != 36 chars
+- length ≠ 36 chars
 - contains anything outside `[a-f0-9-]`
 
-Rejected -> bundle generates a fresh UUIDv7. Prevents log injection (SQL fragments, control characters, oversized payloads) from contaminating log files and aggregator search.
+Rejected → bundle generates a fresh UUIDv7.
 
 ## CLI fallback
 
@@ -189,7 +194,7 @@ In CLI context (no `Request` on `RequestStack`, no `WorkerRequestIdContext` valu
 
 ## Trace Context (W3C `traceparent`)
 
-This bundle deliberately implements the `X-Request-Id` header pattern only (Heroku / Cloudflare CF-Ray style). For W3C Trace Context (`traceparent` and OpenTelemetry alignment) pair this bundle with the official `open-telemetry/opentelemetry-php-instrumentation-symfony` — the two are complementary, not alternatives.
+This bundle deliberately implements the `X-Request-Id` header pattern only (Heroku / Cloudflare CF-Ray style). For W3C Trace Context (`traceparent` / OpenTelemetry alignment) pair this bundle with the official `open-telemetry/opentelemetry-php-instrumentation-symfony` — the two are complementary, not alternatives.
 
 ## Testing
 
@@ -201,25 +206,11 @@ composer stan
 composer rector
 ```
 
-Suite covers:
-
-- valid UUIDv7 accept,
-- mixed-case header normalised to lowercase,
-- invalid header regenerated (5 cases: missing, too short, too long, wrong charset, SQL injection),
-- response header mirror,
-- sub-request skip,
-- subscribed-events shape,
-- CLI fallback (no request, no attribute, non-string attribute),
-- `extra.request_id` attach with pre-existing extras preserved,
-- Messenger `RequestIdStamp` value semantics,
-- `WorkerRequestIdContext` set/get/clear lifecycle,
-- middleware dispatch path attaches the stamp,
-- middleware consume path restores into the worker context,
-- middleware `finally` clears between messages.
+Suite covers: valid UUIDv7 accept, mixed-case header lowercased, five invalid-header regen cases (missing, too short, too long, wrong charset, SQL-injection-looking string), response header mirror, sub-request skip, subscribed-events shape, CLI fallback (no request / no attribute / non-string attribute), `extra.request_id` attach with pre-existing extras preserved, Messenger stamp value semantics, worker-context set/get/clear, middleware dispatch path, middleware consume path, middleware `finally` clears between messages.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
 
 ## Author
 
