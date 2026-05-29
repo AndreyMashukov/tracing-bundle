@@ -4,10 +4,10 @@
     "type": "symfony-bundle",
     "license": "MIT",
     "keywords": ["symfony", "symfony-bundle", "monolog", "tracing", "request-id", "uuidv7", "observability"],
-    "homepage": "https://github.com/amashukov/tracing-bundle",
+    "homepage": "https://github.com/AndreyMashukov/tracing-bundle",
     "support": {
-        "issues": "https://github.com/amashukov/tracing-bundle/issues",
-        "source": "https://github.com/amashukov/tracing-bundle"
+        "issues": "https://github.com/AndreyMashukov/tracing-bundle/issues",
+        "source": "https://github.com/AndreyMashukov/tracing-bundle"
     },
     "authors": [
         {
